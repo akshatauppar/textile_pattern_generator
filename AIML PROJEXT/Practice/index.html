@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth Page</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; padding: 20px; background-color: #f4f4f9; }
+        .form-container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 280px; }
+        h2 { margin-top: 0; color: #333; }
+        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        input[type="file"] { padding: 5px; background-color: #f8f9fa; }
+        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #0056b3; }
+        .msg { font-size: 0.8em; color: #666; margin-bottom: 10px; }
+        .response { margin-top: 15px; padding: 10px; border-radius: 6px; font-size: 0.9em; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+
+    <!-- JSON REGISTER FORM -->
+    <div class="form-container">
+        <h2>Register</h2>
+        <p class="msg">Create a new account (JSON)</p>
+
+        <input type="text" id="reg_username" placeholder="Username" required>
+        <input type="email" id="reg_email" placeholder="Email" required>
+        <input type="password" id="reg_password" placeholder="Password" required>
+        <button type="button" onclick="registerUser()">Sign Up</button>
+
+        <div id="registerResponse" class="response" style="display: none;"></div>
+    </div>
+
+    <!-- JSON LOGIN FORM -->
+    <div class="form-container">
+        <h2>Login</h2>
+        <p class="msg">Welcome back! (JSON)</p>
+
+        <input type="text" id="login_username" placeholder="Username" required>
+        <input type="password" id="login_password" placeholder="Password" required>
+        <button type="button" onclick="loginUser()">Login</button>
+
+        <div id="loginResponse" class="response" style="display: none;"></div>
+    </div>
+
+    <!-- FILE UPLOAD FORM -->
+    <div class="form-container">
+        <h2>File Upload</h2>
+        <p class="msg">Upload files (requires authentication)</p>
+
+        <input type="file" id="fileInput" accept=".txt,.pdf,.png,.jpg,.jpeg" required>
+        <button type="button" onclick="uploadFile()">Upload File</button>
+
+        <div id="uploadResponse" class="response" style="display: none;"></div>
+    </div>
+
+    <!-- PROTECTED ROUTE TEST -->
+    <div class="form-container">
+        <h2>Protected Route</h2>
+        <p class="msg">Test JWT authentication</p>
+
+        <button type="button" onclick="testProtectedRoute()">Test Protected Route</button>
+        <button type="button" onclick="refreshAccessToken()">Refresh Token</button>
+        <button type="button" onclick="logout()">Logout</button>
+
+        <div id="protectedResponse" class="response" style="display: none;"></div>
+        <div id="tokenStatus" class="response" style="display: none;"></div>
+    </div>
+
+<script>
+// JWT Token management
+function getToken() {
+    return localStorage.getItem('access_token');
+}
+
+function getRefreshToken() {
+    return localStorage.getItem('refresh_token');
+}
+
+function setToken(token) {
+    localStorage.setItem('access_token', token);
+    updateTokenStatus();
+}
+
+function setRefreshToken(token) {
+    localStorage.setItem('refresh_token', token);
+}
+
+function removeToken() {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    updateTokenStatus();
+}
+
+function updateTokenStatus() {
+    const token = getToken();
+    const statusDiv = document.getElementById('tokenStatus');
+    statusDiv.style.display = 'block';
+
+    if (token) {
+        statusDiv.className = 'response success';
+        statusDiv.innerText = 'JWT Token: Active';
+    } else {
+        statusDiv.className = 'response error';
+        statusDiv.innerText = 'JWT Token: Not available';
+    }
+}
+
+// Initialize token status on page load
+document.addEventListener('DOMContentLoaded', updateTokenStatus);
+
+function registerUser() {
+    const userData = {
+        username: document.getElementById('reg_username').value,
+        email: document.getElementById('reg_email').value,
+        password: document.getElementById('reg_password').value
+    };
+
+    fetch('http://127.0.0.1:5000/auth/register', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(userData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        const display = document.getElementById('registerResponse');
+        display.style.display = 'block';
+
+        if (data.error) {
+            display.className = 'response error';
+            display.innerText = "Error: " + data.error;
+        } else {
+            display.className = 'response success';
+            display.innerText = data.message + " (User ID: " + data.user_id + ")";
+            if (data.access_token) {
+                setToken(data.access_token);
+            }
+            if (data.refresh_token) {
+                setRefreshToken(data.refresh_token);
+            }
+        }
+    })
+    .catch(error => {
+        const display = document.getElementById('registerResponse');
+        display.style.display = 'block';
+        display.className = 'response error';
+        display.innerText = "Network Error: " + error.message;
+    });
+}
+
+function loginUser() {
+    const userData = {
+        username: document.getElementById('login_username').value,
+        password: document.getElementById('login_password').value
+    };
+
+    fetch('http://127.0.0.1:5000/auth/login', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(userData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        const display = document.getElementById('loginResponse');
+        display.style.display = 'block';
+
+        if (data.error || data.message.includes('not correct')) {
+            display.className = 'response error';
+            display.innerText = "Error: " + (data.error || data.message);
+        } else {
+            display.className = 'response success';
+            display.innerText = data.message + " (User ID: " + data.user_id + ")";
+            if (data.access_token) {
+                setToken(data.access_token);
+            }
+            if (data.refresh_token) {
+                setRefreshToken(data.refresh_token);
+            }
+        }
+    })
+    .catch(error => {
+        const display = document.getElementById('loginResponse');
+        display.style.display = 'block';
+        display.className = 'response error';
+        display.innerText = "Network Error: " + error.message;
+    });
+}
+
+function testProtectedRoute() {
+    const token = getToken();
+    if (!token) {
+        const display = document.getElementById('protectedResponse');
+        display.style.display = 'block';
+        display.className = 'response error';
+        display.innerText = 'No JWT token available. Please login first.';
+        return;
+    }
+
+    fetch('http://127.0.0.1:5000/auth/protected', {
+        method: 'GET',
+        headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => {
+        if (response.status === 401) {
+            throw new Error('Unauthorized - Invalid or expired token');
+        }
+        return response.json();
+    })
+    .then(data => {
+        const display = document.getElementById('protectedResponse');
+        display.style.display = 'block';
+        display.className = 'response success';
+        display.innerText = data.message;
+    })
+    .catch(error => {
+        const display = document.getElementById('protectedResponse');
+        display.style.display = 'block';
+        display.className = 'response error';
+        display.innerText = "Error: " + error.message;
+    });
+}
+
+function logout() {
+    removeToken();
+    const display = document.getElementById('protectedResponse');
+    display.style.display = 'block';
+    display.className = 'response success';
+    display.innerText = 'Logged out successfully!';
+}
+
+function refreshAccessToken() {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) {
+        showProtectedResponse('No refresh token available. Please login again.', 'error');
+        return;
+    }
+
+    fetch('http://127.0.0.1:5000/auth/refresh', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + refreshToken,
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.access_token) {
+            setToken(data.access_token);
+            showProtectedResponse('Access token refreshed successfully!', 'success');
+        } else {
+            showProtectedResponse('Failed to refresh token. Please login again.', 'error');
+            removeToken();
+        }
+    })
+    .catch(error => {
+        showProtectedResponse('Network error during token refresh.', 'error');
+    });
+}
+
+function showProtectedResponse(message, type) {
+    const display = document.getElementById('protectedResponse');
+    display.style.display = 'block';
+    display.className = 'response ' + (type === 'success' ? 'success' : 'error');
+    display.innerText = message;
+}
+
+function uploadFile() {
+    const token = getToken();
+    if (!token) {
+        const display = document.getElementById('uploadResponse');
+        display.style.display = 'block';
+        display.className = 'response error';
+        display.innerText = 'Authentication required. Please login first.';
+        return;
+    }
+
+    const fileInput = document.getElementById('fileInput');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        const display = document.getElementById('uploadResponse');
+        display.style.display = 'block';
+        display.className = 'response error';
+        display.innerText = 'Please select a file to upload.';
+        return;
+    }
+
+    // Check file size (1MB limit)
+    if (file.size > 1024 * 1024) {
+        const display = document.getElementById('uploadResponse');
+        display.style.display = 'block';
+        display.className = 'response error';
+        display.innerText = 'File size must be less than 1MB.';
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    fetch('http://127.0.0.1:5000/upload', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + token
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        const display = document.getElementById('uploadResponse');
+        display.style.display = 'block';
+
+        if (data.error) {
+            display.className = 'response error';
+            display.innerText = "Upload Error: " + data.error;
+        } else {
+            display.className = 'response success';
+            display.innerText = data.message + " (Filename: " + data.filename + ")";
+            // Clear the file input
+            fileInput.value = '';
+        }
+    })
+    .catch(error => {
+        const display = document.getElementById('uploadResponse');
+        display.style.display = 'block';
+        display.className = 'response error';
+        display.innerText = "Network Error: " + error.message;
+    });
+}
+</script>
+
+</body>
+</html>

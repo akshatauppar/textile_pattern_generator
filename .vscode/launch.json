@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Backend (textile_generator_backend)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/textile_generator_backend/app.py",
+      "cwd": "${workspaceFolder}/textile_generator_backend",
+      "python": "${workspaceFolder}/textile_generator_backend/venv/Scripts/python.exe",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "npm: Frontend (textile_generator_frontend)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/textile_generator_frontend"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack (Backend + Frontend)",
+      "configurations": [
+        "Python: Backend (textile_generator_backend)",
+        "npm: Frontend (textile_generator_frontend)"
+      ]
+    }
+  ]
+}

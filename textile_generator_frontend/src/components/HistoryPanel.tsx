@@ -1,16 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { getHistory } from '../services/api';
 import type { GenerationStatus } from '../types';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
 
-export function HistoryPanel() {
+interface HistoryPanelProps {
+  generationStatus?: GenerationStatus | null;
+}
+
+export function HistoryPanel({ generationStatus }: HistoryPanelProps) {
   const { token } = useAuth();
   const [items, setItems] = useState<GenerationStatus[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
+  const fetchHistory = useCallback(() => {
     if (!token) return;
     setLoading(true);
     getHistory(10, 0)
@@ -18,6 +22,19 @@ export function HistoryPanel() {
       .catch(() => toast.error('Unable to load history'))
       .finally(() => setLoading(false));
   }, [token]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [token, fetchHistory]);
+
+  useEffect(() => {
+    if (generationStatus?.status === 'completed') {
+      const timer = setTimeout(() => {
+        fetchHistory();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [generationStatus, fetchHistory]);
 
   if (!token) {
     return (

@@ -27,13 +27,13 @@ class Config:
     MODEL_PATH = os.getenv('MODEL_PATH', '../models')
     
     # Generation defaults
-    DEFAULT_STEPS = 30
-    DEFAULT_GUIDANCE = 7.5
-    IMAGE_SIZE = 1024
+    DEFAULT_STEPS = 1
+    DEFAULT_GUIDANCE = 0.0
+    IMAGE_SIZE = 512
     IMAGE_FORMAT = 'PNG'
     
     # SDXL Model settings
-    SDXL_MODEL_ID = "stabilityai/stable-diffusion-xl-base-1.0"
+    SDXL_MODEL_ID = "stabilityai/sdxl-turbo"
     LORA_ADAPTER_PATH = os.path.join(MODEL_PATH, "adapter_config.json")
     
     # Supported styles and patterns

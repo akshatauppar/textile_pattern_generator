@@ -27,7 +27,7 @@ export function AdvancedOptions({ steps, guidance, seed, onStepsChange, onGuidan
                   type="number"
                   value={steps}
                   onChange={(e) => onStepsChange(Number(e.target.value))}
-                  min={10}
+                  min={1}
                   max={50}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-500"
                 />
@@ -39,7 +39,7 @@ export function AdvancedOptions({ steps, guidance, seed, onStepsChange, onGuidan
                   step="0.1"
                   value={guidance}
                   onChange={(e) => onGuidanceChange(Number(e.target.value))}
-                  min={1}
+                  min={0}
                   max={15}
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary-300 focus:ring-2 focus:ring-primary-500"
                 />

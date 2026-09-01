@@ -27,19 +27,63 @@ export function useGenerator() {
     getStyles()
       .then((styles) => setState((prev) => ({ ...prev, styles })))
       .catch(() => toast.error('Unable to load styles'));
-    
-    // TEMP: Disable WebSocket for TextureGAN backend
-    // socketService.connect();
-    // return () => { socketService.disconnect(); };
-    return () => {};
   }, []);
 
-  // TEMP: Disable WebSocket updates for TextureGAN backend
-  // useEffect(() => { ... }, [state.pendingId]);
+  // Poll generation status when pendingId is active
+  useEffect(() => {
+    if (state.pendingId === null) return;
 
-  // TEMP: Use direct HTTP for TextureGAN backend
+    let isMounted = true;
+    let pollInterval: any;
+
+    const pollStatus = async () => {
+      try {
+        const statusData = await getGenerationStatus(state.pendingId!);
+        if (!isMounted) return;
+
+        if (statusData.status === 'completed') {
+          const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+          setState((prev) => ({
+            ...prev,
+            previewUrl: `${baseUrl}${statusData.image_url}`,
+            loading: false,
+            pendingId: null,
+            status: statusData,
+          }));
+          toast.success('Pattern ready!');
+          clearInterval(pollInterval);
+        } else if (statusData.status === 'failed') {
+          setState((prev) => ({
+            ...prev,
+            loading: false,
+            pendingId: null,
+            status: statusData,
+          }));
+          toast.error(statusData.error_message || 'Generation failed');
+          clearInterval(pollInterval);
+        } else {
+          setState((prev) => ({
+            ...prev,
+            status: statusData,
+          }));
+        }
+      } catch (err) {
+        console.error('[useGenerator] Error polling status:', err);
+      }
+    };
+
+    // Poll immediately, then every 3 seconds
+    pollStatus();
+    pollInterval = setInterval(pollStatus, 3000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+    };
+  }, [state.pendingId]);
+
   const generate = useCallback(async (payload: GenerationRequest) => {
-    setState((prev) => ({ ...prev, loading: true, previewUrl: null }));
+    setState((prev) => ({ ...prev, loading: true, previewUrl: null, pendingId: null }));
     try {
       let result: any;
       if (USE_TEXTUREGAN) {
@@ -57,10 +101,14 @@ export function useGenerator() {
         }
         return result;
       } else {
-        // For SDXL/LoRA, just start generation and return the result (id)
+        // For SDXL/LoRA, start generation and save the pending ID
         result = await startGeneration(payload);
-        // Do not expect image in response, just return result (should contain id)
-        setState((prev) => ({ ...prev, loading: false }));
+        setState((prev) => ({
+          ...prev,
+          pendingId: result.id,
+          loading: true,
+          status: result,
+        }));
         return result;
       }
     } catch (error) {

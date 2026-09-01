@@ -39,6 +39,7 @@ def get_styles():
 
 
 @generation_bp.route('/generate', methods=['POST'])
+@jwt_required(optional=True)
 def generate():
     """Generate a textile pattern
     
@@ -101,7 +102,9 @@ def generate():
         # Get user_id if authenticated
         user_id = None
         try:
-            user_id = get_jwt_identity()
+            val = get_jwt_identity()
+            if val is not None:
+                user_id = int(val)
         except:
             pass  # Allow guest users
         
@@ -119,11 +122,22 @@ def generate():
         db.session.add(generation)
         db.session.commit()
         
+        # Get inference steps, guidance, and image size from request or config defaults
+        steps = data.get('num_inference_steps')
+        if steps is None:
+            steps = current_app.config.get('DEFAULT_STEPS', 1)
+            
+        guidance = data.get('guidance_scale')
+        if guidance is None:
+            guidance = current_app.config.get('DEFAULT_GUIDANCE', 0.0)
+            
+        image_size = current_app.config.get('IMAGE_SIZE', 512)
+
         # Generate in background thread
         print(f"[DEBUG] Starting thread for generation {generation.id}")
         thread = Thread(
             target=_process_generation,
-            args=(current_app._get_current_object(), generation.id, prompt, style, pattern, color_1, color_2, seed)
+            args=(current_app._get_current_object(), generation.id, prompt, style, pattern, color_1, color_2, seed, steps, guidance, image_size)
         )
         thread.daemon = True
         thread.start()
@@ -138,7 +152,7 @@ def generate():
         return jsonify({'error': f'Generation failed: {str(e)}'}), 500
 
 
-def _process_generation(app, generation_id, prompt, style, pattern, color_1, color_2, seed):
+def _process_generation(app, generation_id, prompt, style, pattern, color_1, color_2, seed, steps, guidance, image_size):
     """Background task to process generation"""
     print(f"[THREAD] Thread started for generation {generation_id}")
     with app.app_context():
@@ -156,7 +170,10 @@ def _process_generation(app, generation_id, prompt, style, pattern, color_1, col
                 pattern=pattern,
                 color_1=color_1,
                 color_2=color_2,
-                seed=seed
+                seed=seed,
+                num_inference_steps=steps,
+                guidance_scale=guidance,
+                image_size=image_size
             )
             
             logger.info(f"Image generated with seed {actual_seed}, saving...")
@@ -234,7 +251,7 @@ def get_history():
         401: { error: message }
     """
     user_id = get_jwt_identity()
-    user = User.query.get(user_id)
+    user = User.query.get(int(user_id))
     
     if not user:
         return jsonify({'error': 'User not found'}), 404

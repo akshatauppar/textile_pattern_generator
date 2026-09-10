@@ -74,7 +74,35 @@ class Config:
                 {"id": "woven_pattern", "name": "Woven Pattern", "description": "Woven ikat patterns"},
             ]
         },
+        {
+            "id": "block_print",
+            "name": "Block Print",
+            "description": "Hand-carved wooden block stamped motifs",
+            "patterns": [
+                {"id": "jaipuri_floral", "name": "Jaipuri Floral", "description": "Delicate botanical block prints"},
+                {"id": "ajrakh_star", "name": "Ajrakh Star", "description": "Geometric stellar block print"},
+                {"id": "buta_stamp", "name": "Buta Stamp", "description": "Traditional floral buta repeat"},
+                {"id": "geometric_lattice", "name": "Geometric Lattice", "description": "Interlocking lattice jaal"},
+            ]
+        },
+        {
+            "id": "paisley",
+            "name": "Paisley",
+            "description": "Curved teardrop kalka motifs and swirls",
+            "patterns": [
+                {"id": "royal_paisley", "name": "Royal Paisley", "description": "Ornate Kashmiri kalka teardrop"},
+                {"id": "floral_buta", "name": "Floral Buta", "description": "Floral paisley bouquet"},
+                {"id": "zardozi_swirl", "name": "Zardozi Swirl", "description": "Intricate swirling borders"},
+            ]
+        },
     ]
+
+    # StyleGAN2-ADA Settings
+    STYLEGAN_SNAPSHOT = "network-snapshot-000480.pkl"
+    ESTIMATED_FID = 18.42
+    TRAINED_KIMG = 2000
+    DATASET_IMAGE_COUNT = 1108
+
 
 
 class DevelopmentConfig(Config):

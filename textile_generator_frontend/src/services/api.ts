@@ -84,4 +84,10 @@ export async function register(username: string, email: string, password: string
   await api.post('/api/register', { username, email, password });
 }
 
+export async function getBenchmarks(): Promise<any> {
+  const { data } = await api.get('/api/benchmarks');
+  return data;
+}
+
 export default api;
+

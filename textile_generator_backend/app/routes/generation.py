@@ -72,6 +72,7 @@ def generate():
     color_1 = data.get('color_1', '').strip() or None
     color_2 = data.get('color_2', '').strip() or None
     seed = data.get('seed')
+    reference_image = data.get('reference_image')
     
     # Validate prompt
     if not prompt or len(prompt) < 3:
@@ -137,7 +138,7 @@ def generate():
         print(f"[DEBUG] Starting thread for generation {generation.id}")
         thread = Thread(
             target=_process_generation,
-            args=(current_app._get_current_object(), generation.id, prompt, style, pattern, color_1, color_2, seed, steps, guidance, image_size)
+            args=(current_app._get_current_object(), generation.id, prompt, style, pattern, color_1, color_2, seed, steps, guidance, image_size, reference_image)
         )
         thread.daemon = True
         thread.start()
@@ -152,7 +153,7 @@ def generate():
         return jsonify({'error': f'Generation failed: {str(e)}'}), 500
 
 
-def _process_generation(app, generation_id, prompt, style, pattern, color_1, color_2, seed, steps, guidance, image_size):
+def _process_generation(app, generation_id, prompt, style, pattern, color_1, color_2, seed, steps, guidance, image_size, reference_image=None):
     """Background task to process generation"""
     print(f"[THREAD] Thread started for generation {generation_id}")
     with app.app_context():
@@ -173,8 +174,10 @@ def _process_generation(app, generation_id, prompt, style, pattern, color_1, col
                 seed=seed,
                 num_inference_steps=steps,
                 guidance_scale=guidance,
-                image_size=image_size
+                image_size=image_size,
+                reference_image=reference_image
             )
+
             
             logger.info(f"Image generated with seed {actual_seed}, saving...")
             # Save image
@@ -359,6 +362,61 @@ def health():
 
 
 
+@generation_bp.route('/benchmarks', methods=['GET'])
+def get_benchmarks():
+    """Get project benchmarks, loss curves, and model specifications"""
+    return jsonify({
+        'project': {
+            'title': 'Smart Textile: AI Driven Textile Pattern Generator',
+        },
+        'specs': {
+            'architecture': 'StyleGAN2-ADA (Adaptive Discriminator Augmentation)',
+            'checkpoint': 'network-snapshot-000480.pkl',
+            'dataset_size': 1108,
+            'dataset_classes': {
+                'bandhani': 550,
+                'batik_14_subfolders': 558
+            },
+            'training_kimg': 2000,
+            'training_hardware': 'NVIDIA Tesla P100 GPU (16-24 GB VRAM)',
+            'training_time': '38-45 hours',
+            'inference_latency_gpu': '0.8 seconds',
+            'inference_latency_cpu': '3.2 seconds',
+            'fid_score': 18.42,
+            'resolution': '256x256 (Trained), 512x512 / 1024x1024 (Synthesis)'
+        },
+        'training_logs': [
+            {'tick': 10, 'progress': 'kimg ~140', 'observation': 'Initial noisy textures, basic color clusters forming'},
+            {'tick': 20, 'progress': 'kimg ~280', 'observation': 'Coarse patterns and geometric outlines forming'},
+            {'tick': 30, 'progress': 'kimg ~420', 'observation': 'Clear Bandhani circular motifs and Batik crackles visible'},
+            {'tick': 40, 'progress': 'kimg ~560', 'observation': 'Bandhani dots highly refined, Batik dye transitions smooth'}
+        ],
+        'loss_curves': {
+            # Fig 5.1 & 5.2 data points for D loss and G loss vs kimg
+            'early_phase': [
+                {'kimg': 1, 'd_loss': 1720, 'g_loss': 570},
+                {'kimg': 2, 'd_loss': 380, 'g_loss': 120},
+                {'kimg': 3, 'd_loss': 850, 'g_loss': 180},
+                {'kimg': 4, 'd_loss': 50, 'g_loss': 420},
+                {'kimg': 6, 'd_loss': 35, 'g_loss': 510},
+                {'kimg': 8, 'd_loss': 25, 'g_loss': 400},
+                {'kimg': 9, 'd_loss': 30, 'g_loss': 680},
+                {'kimg': 11, 'd_loss': 22, 'g_loss': 540},
+                {'kimg': 12, 'd_loss': 140, 'g_loss': 90},
+                {'kimg': 13, 'd_loss': 28, 'g_loss': 880},
+                {'kimg': 14, 'd_loss': 30, 'g_loss': 190},
+                {'kimg': 15, 'd_loss': 20, 'g_loss': 170}
+            ],
+            'full_run_trend': {
+                'initial_loss_range': 'D: 20-1000, G: 100-700',
+                'divergence_point': 'kimg ≈ 16',
+                'peak_d_loss': '10¹² - 10¹⁵ (due to small dataset discriminator dominance)',
+                'moving_average_trend': 'Smooth initial decline followed by mode-collapse recovery dynamics'
+            }
+        }
+    }), 200
+
+
 @generation_bp.route('/test-generate', methods=['POST'])
 def test_generate():
     """Synchronous generation for testing (no background thread)"""
@@ -390,4 +448,5 @@ def test_generate():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
 

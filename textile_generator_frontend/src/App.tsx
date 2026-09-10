@@ -21,11 +21,13 @@ function AppContent() {
 
   const [prompt, setPrompt] = useState('intricate geometric floral pattern');
   const [style, setStyle] = useState<StyleId>('bandhani');
-  const [primaryColor, setPrimaryColor] = useState('#6366F1');
-  const [secondaryColor, setSecondaryColor] = useState('#EC4899');
+  const [primaryColor, setPrimaryColor] = useState('#881337');
+  const [secondaryColor, setSecondaryColor] = useState('#F59E0B');
   const [steps, setSteps] = useState(1);
   const [guidance, setGuidance] = useState(0.0);
   const [seed, setSeed] = useState<number | null>(null);
+  const [imageSize, setImageSize] = useState<number>(1024);
+  const [referenceImage, setReferenceImage] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -69,7 +71,6 @@ function AppContent() {
         num_samples: 1,
       });
     } else {
-      // Clamp steps to max 30 for SDXL/Euler
       const safeSteps = Math.min(steps, 30);
       generate({
         prompt,
@@ -79,18 +80,24 @@ function AppContent() {
         seed,
         num_inference_steps: safeSteps,
         guidance_scale: guidance,
+        image_size: imageSize,
+        reference_image: referenceImage,
       });
     }
   };
 
   return (
-    <div className="min-h-screen text-slate-900 dark:text-slate-100">
-      <Header onLogin={() => setAuthOpen(true)} onLogout={logout} token={token} />
+    <div className="min-h-screen text-slate-900 dark:text-slate-100 bg-slate-50 dark:bg-slate-950 transition-colors">
+      <Header
+        onLogin={() => setAuthOpen(true)}
+        onLogout={logout}
+        token={token}
+      />
       <main className="pt-16">
         <Hero />
 
-        <section className="py-10" id="generator">
-          <div className="w-full px-4 space-y-4">
+        <section className="py-8" id="generator">
+          <div className="w-full px-4 space-y-6">
             <HealthCard />
             <div className="grid lg:grid-cols-2 gap-8 items-start">
               <ControlPanel
@@ -101,6 +108,8 @@ function AppContent() {
                 steps={steps}
                 guidance={guidance}
                 seed={seed}
+                imageSize={imageSize}
+                referenceImage={referenceImage}
                 loading={loading}
                 promptRef={promptRef}
                 onPrompt={setPrompt}
@@ -110,6 +119,8 @@ function AppContent() {
                 onSteps={setSteps}
                 onGuidance={setGuidance}
                 onSeed={setSeed}
+                onImageSize={setImageSize}
+                onReferenceImage={setReferenceImage}
                 onGenerate={onGenerate}
                 disableGenerate={!prompt || prompt.length < 3}
                 stylesLoaded={styles.length > 0}
@@ -119,7 +130,6 @@ function AppContent() {
             <HistoryPanel generationStatus={status} />
           </div>
         </section>
-
       </main>
       <Footer />
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />

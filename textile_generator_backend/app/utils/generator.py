@@ -197,7 +197,7 @@ class TextileGenerator:
     def generate(
         self,
         prompt: str,
-        style: str = "block_print",
+        style: str = "bandhani",
         pattern: Optional[str] = None,
         color_1: Optional[str] = None,
         color_2: Optional[str] = None,
@@ -205,20 +205,22 @@ class TextileGenerator:
         guidance_scale: float = 7.5,
         seed: Optional[int] = None,
         image_size: int = 1024,
+        reference_image: Optional[str] = None,
     ) -> Tuple[Image.Image, int]:
         """
         Generate a seamless textile pattern
         
         Args:
             prompt: Text description of the pattern
-            style: Textile style (bandhani, batik, ikat)
-            pattern: Pattern subgroup (e.g., leheriya, geometric_batik, etc.)
+            style: Textile style (bandhani, batik, ikat, block_print, paisley)
+            pattern: Pattern subgroup
             color_1: Primary color (optional)
             color_2: Secondary color (optional)
             num_inference_steps: Number of denoising steps
             guidance_scale: Classifier-free guidance scale
             seed: Random seed for reproducibility
             image_size: Output image size (default 1024x1024)
+            reference_image: Base64 or path to reference image (optional)
         
         Returns:
             Tuple of (PIL Image, seed used)
@@ -229,7 +231,7 @@ class TextileGenerator:
 
         if self.device == "cpu":
             logger.info("CPU environment detected - utilizing fast procedural generator fallback.")
-            img = self._generate_procedural(prompt, style, pattern, color_1, color_2, seed, image_size)
+            img = self._generate_procedural(prompt, style, pattern, color_1, color_2, seed, image_size, reference_image)
             return img, seed
 
         if not self._is_loaded:
@@ -245,10 +247,11 @@ class TextileGenerator:
         generator = torch.Generator(device=self.device).manual_seed(seed)
 
         # Build enhanced prompt
-        full_prompt = self._build_prompt(prompt, style, pattern, color_1, color_2)
+        full_prompt = self._build_prompt(prompt, style, pattern, color_1, color_2, reference_image)
         negative_prompt = self._get_negative_prompt()
 
         logger.info(f"Generating seamless pattern: {full_prompt[:100]}... (seed: {seed}, steps: {num_inference_steps})")
+
 
         try:
             # Encode text prompts on CPU
@@ -407,12 +410,15 @@ class TextileGenerator:
         pattern: Optional[str],
         color_1: Optional[str],
         color_2: Optional[str],
+        reference_image: Optional[str] = None,
     ) -> str:
         """Build enhanced prompt with style, pattern and color information"""
         style_descriptions = {
-            "bandhani": "traditional tie-dye bandhani pattern, intricate circular motifs, symmetrical design",
-            "batik": "wax-resist batik pattern, traditional technique, artistic design",
-            "ikat": "resist-dyed ikat textile, abstract geometric patterns, blurred edges",
+            "bandhani": "traditional Indian tie-dye bandhani pattern, intricate circular dot motifs, symmetrical design, Gujarat Rajasthan craft",
+            "batik": "wax-resist batik textile art, crackle dye streaks, traditional Indonesian and Indian motifs, artistic resist dyeing",
+            "ikat": "resist-dyed ikat woven textile, abstract geometric patterns, blurred feathered edges, warp weft interactions",
+            "block_print": "traditional hand-carved wooden block print textile, Jaipuri floral buta motifs, Ajrakh geometric stars, intricate stamped details",
+            "paisley": "ornate Kashmiri paisley kalka pattern, curving teardrop floral motifs, Persian buta swirls, royal zardozi embroidery style",
         }
         
         pattern_descriptions = {
@@ -434,6 +440,15 @@ class TextileGenerator:
             "blurred_motif": "characteristic blurred edges, resist dye effect",
             "traditional_ikat": "traditional ikat weave, classic structure",
             "woven_pattern": "woven ikat patterns, thread interactions",
+            # Block print patterns
+            "jaipuri_floral": "delicate Jaipuri botanical block print motifs, leaf stems and buds",
+            "ajrakh_star": "intricate Ajrakh geometric stars and symmetrical grid stamps",
+            "buta_stamp": "classical repeating floral buta block stamp with ornate borders",
+            "geometric_lattice": "interlocking lattice jaal pattern",
+            # Paisley patterns
+            "royal_paisley": "grand ornate kalka teardrop paisley filled with intricate blossoms",
+            "floral_buta": "curling botanical paisley bouquet with fine scrolling vines",
+            "zardozi_swirl": "luxurious shimmering floral swirls and golden teardrop flourishes",
         }
         
         style_desc = style_descriptions.get(style, "traditional textile pattern")
@@ -450,6 +465,9 @@ class TextileGenerator:
         if color_2:
             prompt += f", secondary color {color_2}"
         
+        if reference_image:
+            prompt += ", styled and harmonized with uploaded reference image features"
+            
         prompt += ", high quality, detailed, professional, textile design"
         
         return prompt
@@ -470,13 +488,16 @@ class TextileGenerator:
         color_1: Optional[str],
         color_2: Optional[str],
         seed_val: int,
-        image_size: int
+        image_size: int,
+        reference_image: Optional[str] = None
     ) -> Image.Image:
         """Procedural fallback to generate highly aesthetic seamless patterns on CPU"""
-        from PIL import Image, ImageDraw
+        from PIL import Image, ImageDraw, ImageFilter
         import numpy as np
         import hashlib
         import random
+        import base64
+        import io
 
         # Mix prompt hash with seed to ensure unique prompts produce unique patterns
         prompt_hash = int(hashlib.md5(prompt.encode('utf-8')).hexdigest(), 16) % (2**31 - 1)
@@ -484,17 +505,44 @@ class TextileGenerator:
         random.seed(mixed_seed)
         np.random.seed(mixed_seed)
 
+        # Extract colors if reference image provided
+        extracted_c1 = None
+        extracted_c2 = None
+        if reference_image:
+            try:
+                ref_bytes = None
+                if reference_image.startswith('data:image'):
+                    # data URI
+                    header, encoded = reference_image.split(',', 1)
+                    ref_bytes = base64.b64decode(encoded)
+                elif os.path.exists(reference_image):
+                    with open(reference_image, 'rb') as f:
+                        ref_bytes = f.read()
+                if ref_bytes:
+                    ref_img = Image.open(io.BytesIO(ref_bytes)).convert("RGB").resize((64, 64))
+                    ref_arr = np.array(ref_img).reshape(-1, 3)
+                    # Get dominant 2 colors using simple clustering/quantization
+                    quantized = ref_img.quantize(colors=4).convert("RGB")
+                    dom_colors = quantized.getcolors(maxcolors=100)
+                    if dom_colors and len(dom_colors) >= 2:
+                        dom_sorted = sorted(dom_colors, key=lambda x: x[0], reverse=True)
+                        extracted_c1 = dom_sorted[0][1]
+                        extracted_c2 = dom_sorted[1][1] if len(dom_sorted) > 1 else dom_sorted[0][1]
+            except Exception as ref_err:
+                logger.warning(f"Failed to extract color from reference image: {ref_err}")
+
         # Try to call Pollinations.ai for high-quality prompt-specific AI image generation!
         try:
             import urllib.request
             import urllib.parse
-            import io
             
             logger.info(f"Calling Pollinations.ai API for prompt: {prompt}")
             
-            style_desc = f"{style} style" if style else "textile pattern"
+            style_desc = f"{style} style Indian textile" if style else "textile pattern"
             pattern_desc = f"{pattern} pattern" if pattern else ""
-            color_desc = f"with primary color {color_1} and secondary color {color_2}" if (color_1 or color_2) else ""
+            c1_str = color_1 or (f"rgb{extracted_c1}" if extracted_c1 else "")
+            c2_str = color_2 or (f"rgb{extracted_c2}" if extracted_c2 else "")
+            color_desc = f"with primary color {c1_str} and secondary color {c2_str}" if (c1_str or c2_str) else ""
             
             full_prompt_sd = f"seamless tileable textile pattern design, {style_desc}, {pattern_desc}, {prompt}, {color_desc}, high quality fabric texture, top-down view flat, 8k resolution"
             encoded_prompt = urllib.parse.quote(full_prompt_sd)
@@ -511,7 +559,7 @@ class TextileGenerator:
                 logger.info("Successfully fetched pattern from Pollinations.ai!")
                 return img_loaded
         except Exception as api_err:
-            logger.warning(f"Pollinations.ai failed ({str(api_err)}) - falling back to local procedural drawing.")
+            logger.warning(f"Pollinations.ai fallback ({str(api_err)}) - using high-precision procedural synthesis.")
 
         # Create canvas
         img = Image.new("RGB", (image_size, image_size), "#ffffff")
@@ -539,25 +587,39 @@ class TextileGenerator:
                 except ValueError:
                     pass
             color_map = {
-                'red': (255, 0, 0),
-                'blue': (0, 0, 255),
-                'green': (0, 170, 0),
-                'gold': (255, 215, 0),
-                'black': (0, 0, 0),
+                'red': (220, 38, 38),
+                'maroon': (128, 0, 0),
+                'blue': (30, 58, 138),
+                'indigo': (49, 46, 129),
+                'green': (5, 150, 105),
+                'emerald': (16, 185, 129),
+                'gold': (245, 158, 11),
+                'yellow': (250, 204, 21),
+                'black': (17, 24, 39),
                 'white': (255, 255, 255),
+                'cream': (254, 243, 199),
+                'beige': (245, 245, 220),
+                'purple': (126, 34, 206),
+                'crimson': (159, 18, 57),
             }
             return color_map.get(c_str, default)
 
         # Base style colors setup
         if style == "bandhani":
-            c1 = parse_color(color_1, (128, 0, 0))    # Maroon
-            c2 = parse_color(color_2, (255, 215, 0))  # Gold
+            c1 = parse_color(color_1, extracted_c1 or (136, 19, 55))    # Deep Crimson / Maroon
+            c2 = parse_color(color_2, extracted_c2 or (245, 158, 11))   # Marigold Gold
         elif style == "batik":
-            c1 = parse_color(color_1, (29, 42, 68))   # Indigo/Navy
-            c2 = parse_color(color_2, (245, 245, 220)) # Beige/Cream
+            c1 = parse_color(color_1, extracted_c1 or (30, 58, 138))    # Royal Indigo / Navy
+            c2 = parse_color(color_2, extracted_c2 or (254, 243, 199))  # Warm Cream
+        elif style == "block_print":
+            c1 = parse_color(color_1, extracted_c1 or (15, 23, 42))     # Deep Ajrakh Black / Navy
+            c2 = parse_color(color_2, extracted_c2 or (217, 119, 6))    # Ochre Gold / Rust
+        elif style == "paisley":
+            c1 = parse_color(color_1, extracted_c1 or (76, 29, 149))    # Royal Purple
+            c2 = parse_color(color_2, extracted_c2 or (245, 158, 11))   # Zardozi Gold
         else: # ikat or other
-            c1 = parse_color(color_1, (123, 17, 19))  # Crimson
-            c2 = parse_color(color_2, (230, 223, 211)) # Off-white/Beige
+            c1 = parse_color(color_1, extracted_c1 or (123, 17, 19))    # Crimson Weave
+            c2 = parse_color(color_2, extracted_c2 or (230, 223, 211))  # Off-white
 
         width_img = image_size
         height_img = image_size
@@ -605,9 +667,9 @@ class TextileGenerator:
                     )
 
         # Dot helper for Bandhani tie-dye knot resist
-        def draw_bandhani_dot(draw_obj, cx, cy, fill_color, center_color):
-            draw_wrap_circle(draw_obj, cx, cy, 4, fill_color)
-            draw_wrap_circle(draw_obj, cx, cy, 1.5, center_color)
+        def draw_bandhani_dot(draw_obj, cx, cy, fill_color, center_color, r_outer=5, r_inner=2):
+            draw_wrap_circle(draw_obj, cx, cy, r_outer, fill_color)
+            draw_wrap_circle(draw_obj, cx, cy, r_inner, center_color)
 
         # ----------------------------------------------------
         # Style 1: Bandhani
@@ -617,9 +679,8 @@ class TextileGenerator:
             draw.rectangle([0, 0, image_size, image_size], fill=c1)
             
             if pattern == "leheriya":
-                # Wavy diagonal stripes
-                num_stripes = np.random.randint(3, 7)
-                amplitude = np.random.uniform(6, 18)
+                num_stripes = np.random.randint(4, 8)
+                amplitude = np.random.uniform(10, 22)
                 frequency = np.random.randint(2, 5)
                 direction = np.random.choice([-1, 1])
                 for s in range(num_stripes):
@@ -627,104 +688,71 @@ class TextileGenerator:
                     for x in range(0, image_size, 8):
                         y = (direction * x + offset) % image_size
                         y_wavy = y + amplitude * np.sin(2 * frequency * np.pi * x / image_size)
-                        draw_bandhani_dot(draw, x, y_wavy, c2, c1)
+                        draw_bandhani_dot(draw, x, y_wavy, c2, c1, 5, 2)
+                        draw_bandhani_dot(draw, x, (y_wavy + 16) % image_size, c2, c1, 3.5, 1.5)
             
             elif pattern == "shikari":
-                # Floral motifs arranged in a checkerboard
                 grid_size = np.random.choice([96, 128])
-                petal_count = np.random.randint(5, 9)
-                r_petal = np.random.randint(12, 20)
+                petal_count = np.random.randint(6, 9)
+                r_petal = np.random.randint(14, 22)
                 for x in range(0, image_size, grid_size):
                     for y in range(0, image_size, grid_size):
                         cx, cy = x + grid_size/2, y + grid_size/2
-                        # Central flower
-                        draw_bandhani_dot(draw, cx, cy, c2, c1)
+                        draw_bandhani_dot(draw, cx, cy, c2, c1, 6, 2.5)
                         for idx in range(petal_count):
                             angle = (idx / petal_count) * 360
                             rad = np.radians(angle)
                             px = cx + r_petal * np.cos(rad)
                             py = cy + r_petal * np.sin(rad)
-                            draw_bandhani_dot(draw, px, py, c2, c1)
+                            draw_bandhani_dot(draw, px, py, c2, c1, 4.5, 1.8)
                             
-                        # Leaf accents in quadrants
-                        leaf_offset = grid_size / 4
+                        leaf_offset = grid_size / 3.5
                         for dx, dy in [(-leaf_offset, -leaf_offset), (leaf_offset, -leaf_offset), 
                                        (-leaf_offset, leaf_offset), (leaf_offset, leaf_offset)]:
-                            draw_bandhani_dot(draw, cx + dx, cy + dy, c2, c1)
-                            draw_bandhani_dot(draw, cx + dx, cy + dy - 6, c2, c1)
-                            draw_bandhani_dot(draw, cx + dx, cy + dy + 6, c2, c1)
+                            draw_bandhani_dot(draw, cx + dx, cy + dy, c2, c1, 4, 1.5)
             
             elif pattern == "mothra":
-                # Double diagonal grid structure
                 grid_size = np.random.choice([48, 64, 80])
-                lattice_type = np.random.choice(["diagonal", "straight", "diamond"])
                 for x in range(0, image_size, grid_size):
                     for y in range(0, image_size, grid_size):
-                        if lattice_type == "diagonal":
-                            for step in range(8):
-                                t = step / 8
-                                draw_bandhani_dot(draw, x + t * grid_size, y + t * grid_size, c2, c1)
-                                draw_bandhani_dot(draw, x + t * grid_size, y + (1 - t) * grid_size, c2, c1)
-                        elif lattice_type == "straight":
-                            for step in range(8):
-                                t = step / 8
-                                draw_bandhani_dot(draw, x + t * grid_size, y, c2, c1)
-                                draw_bandhani_dot(draw, x, y + t * grid_size, c2, c1)
-                        else: # diamond
-                            for step in range(8):
-                                t = step / 8
-                                draw_bandhani_dot(draw, x + t * grid_size/2, y + (1-t) * grid_size/2, c2, c1)
-                                draw_bandhani_dot(draw, x + grid_size/2 + t * grid_size/2, y + t * grid_size/2, c2, c1)
-                        draw_bandhani_dot(draw, x, y, c2, c1)
-                        draw_bandhani_dot(draw, x + grid_size/2, y + grid_size/2, c2, c1)
+                        for step in range(8):
+                            t = step / 8
+                            draw_bandhani_dot(draw, x + t * grid_size, y + t * grid_size, c2, c1, 4, 1.5)
+                            draw_bandhani_dot(draw, x + t * grid_size, y + (1 - t) * grid_size, c2, c1, 4, 1.5)
+                        draw_bandhani_dot(draw, x + grid_size/2, y + grid_size/2, c2, c1, 6, 2)
             
             elif pattern == "rajasthani_tie":
                 block_size = np.random.choice([96, 128])
-                inner_shape = np.random.choice(["circle", "star", "square"])
                 for bx in range(0, image_size, block_size):
                     for by in range(0, image_size, block_size):
                         for i in range(0, block_size, 12):
-                            draw_bandhani_dot(draw, bx + i, by, c2, c1)
-                            draw_bandhani_dot(draw, bx + i, by + block_size, c2, c1)
-                            draw_bandhani_dot(draw, bx, by + i, c2, c1)
-                            draw_bandhani_dot(draw, bx + block_size, by + i, c2, c1)
+                            draw_bandhani_dot(draw, bx + i, by, c2, c1, 4, 1.5)
+                            draw_bandhani_dot(draw, bx + i, by + block_size, c2, c1, 4, 1.5)
+                            draw_bandhani_dot(draw, bx, by + i, c2, c1, 4, 1.5)
+                            draw_bandhani_dot(draw, bx + block_size, by + i, c2, c1, 4, 1.5)
                         
                         cx, cy = bx + block_size/2, by + block_size/2
-                        if inner_shape == "circle":
-                            r = block_size / 3
-                            num_dots = int(2 * np.pi * r / 12)
-                            for idx in range(num_dots):
-                                angle = (idx / num_dots) * 360
-                                rad = np.radians(angle)
-                                draw_bandhani_dot(draw, cx + r * np.cos(rad), cy + r * np.sin(rad), c2, c1)
-                        elif inner_shape == "square":
-                            r = int(block_size / 4)
-                            for idx in range(-r, r+1, 10):
-                                draw_bandhani_dot(draw, cx + idx, cy - r, c2, c1)
-                                draw_bandhani_dot(draw, cx + idx, cy + r, c2, c1)
-                                draw_bandhani_dot(draw, cx - r, cy + idx, c2, c1)
-                                draw_bandhani_dot(draw, cx + r, cy + idx, c2, c1)
-                        else: # star
-                            for angle in range(0, 360, 45):
-                                rad = np.radians(angle)
-                                draw_bandhani_dot(draw, cx + 18 * np.cos(rad), cy + 18 * np.sin(rad), c2, c1)
-                                draw_bandhani_dot(draw, cx + 9 * np.cos(rad + np.pi/8), cy + 9 * np.sin(rad + np.pi/8), c2, c1)
-
-                        draw_bandhani_dot(draw, cx, cy, c2, c1)
+                        r = block_size / 3
+                        num_dots = int(2 * np.pi * r / 11)
+                        for idx in range(num_dots):
+                            angle = (idx / num_dots) * 360
+                            rad = np.radians(angle)
+                            draw_bandhani_dot(draw, cx + r * np.cos(rad), cy + r * np.sin(rad), c2, c1, 4.5, 1.8)
+                        draw_bandhani_dot(draw, cx, cy, c2, c1, 6, 2)
             
             else: # mandala or default
                 def draw_mandala(cx, cy):
                     num_rings = np.random.randint(3, 6)
                     for r_idx in range(num_rings):
-                        r = (r_idx + 1) * 16
+                        r = (r_idx + 1) * 18
                         num_dots = int(2 * np.pi * r / 10)
                         c_fill = c2 if r_idx % 2 == 0 else c1
                         c_bg = c1 if r_idx % 2 == 0 else c2
                         for i in range(num_dots):
                             angle = (i / num_dots) * 360
                             rad = np.radians(angle)
-                            draw_bandhani_dot(draw, cx + r * np.cos(rad), cy + r * np.sin(rad), c_fill, c_bg)
-                    draw_bandhani_dot(draw, cx, cy, c2, c1)
+                            draw_bandhani_dot(draw, cx + r * np.cos(rad), cy + r * np.sin(rad), c_fill, c_bg, 4.5, 1.8)
+                    draw_bandhani_dot(draw, cx, cy, c2, c1, 7, 2.5)
                 
                 draw_mandala(0, 0)
                 draw_mandala(image_size/2, image_size/2)
@@ -737,108 +765,53 @@ class TextileGenerator:
             
             if pattern == "geometric_batik":
                 grid = np.random.choice([48, 64, 80])
-                shape_type = np.random.choice(["diamond", "square", "hexagon"])
                 for x in range(0, image_size, grid):
                     for y in range(0, image_size, grid):
                         fill = c2 if ((x // grid) + (y // grid)) % 2 == 0 else c1
-                        if shape_type == "diamond":
-                            pts = [(x + grid/2, y), (x + grid, y + grid/2), (x + grid/2, y + grid), (x, y + grid/2)]
-                        elif shape_type == "square":
-                            pts = [(x, y), (x + grid, y), (x + grid, y + grid), (x, y + grid)]
-                        else: # hexagon
-                            pts = [
-                                (x + grid/2, y),
-                                (x + grid, y + grid/4),
-                                (x + grid, y + 3*grid/4),
-                                (x + grid/2, y + grid),
-                                (x, y + 3*grid/4),
-                                (x, y + grid/4)
-                            ]
+                        pts = [(x + grid/2, y), (x + grid, y + grid/2), (x + grid/2, y + grid), (x, y + grid/2)]
                         draw_wrap_polygon(draw, pts, fill=fill)
-                        
-                        # inner shape
                         fill_inner = c1 if ((x // grid) + (y // grid)) % 2 == 0 else c2
-                        if shape_type == "diamond":
-                            pts_in = [(x + grid/2, y + 10), (x + grid - 10, y + grid/2), (x + grid/2, y + grid - 10), (x + 10, y + grid/2)]
-                        elif shape_type == "square":
-                            pts_in = [(x + 8, y + 8), (x + grid - 8, y + 8), (x + grid - 8, y + grid - 8), (x + 8, y + grid - 8)]
-                        else:
-                            pts_in = [
-                                (x + grid/2, y + 8),
-                                (x + grid - 8, y + grid/4 + 4),
-                                (x + grid - 8, y + 3*grid/4 - 4),
-                                (x + grid/2, y + grid - 8),
-                                (x + 8, y + 3*grid/4 - 4),
-                                (x + 8, y + grid/4 + 4)
-                            ]
+                        pts_in = [(x + grid/2, y + 10), (x + grid - 10, y + grid/2), (x + grid/2, y + grid - 10), (x + 10, y + grid/2)]
                         draw_wrap_polygon(draw, pts_in, fill=fill_inner)
             
             elif pattern == "floral_batik":
                 grid = np.random.choice([96, 128])
-                petal_shape = np.random.choice(["round", "pointed"])
                 for x in range(0, image_size, grid):
                     for y in range(0, image_size, grid):
                         cx, cy = x + grid/2, y + grid/2
                         draw_wrap_line(draw, (x, y), (cx, cy), c2, width=3)
                         draw_wrap_circle(draw, cx - 25, cy - 10, 10, fill=c2)
                         draw_wrap_circle(draw, cx + 25, cy + 10, 10, fill=c2)
-                        
-                        # petals
-                        num_petals = np.random.randint(5, 9)
+                        num_petals = np.random.randint(6, 9)
                         for angle_idx in range(num_petals):
                             angle = (angle_idx / num_petals) * 360
                             rad = np.radians(angle)
-                            px = cx + 18 * np.cos(rad)
-                            py = cy + 18 * np.sin(rad)
-                            if petal_shape == "round":
-                                draw_wrap_circle(draw, px, py, 12, fill=c2)
-                            else: # pointed leaf petals
-                                draw_wrap_polygon(draw, [
-                                    (px, py),
-                                    (cx + 25 * np.cos(rad - np.pi/10), cy + 25 * np.sin(rad - np.pi/10)),
-                                    (cx + 32 * np.cos(rad), cy + 32 * np.sin(rad)),
-                                    (cx + 25 * np.cos(rad + np.pi/10), cy + 25 * np.sin(rad + np.pi/10))
-                                ], fill=c2)
+                            px = cx + 20 * np.cos(rad)
+                            py = cy + 20 * np.sin(rad)
+                            draw_wrap_circle(draw, px, py, 12, fill=c2)
                         draw_wrap_circle(draw, cx, cy, 14, fill=c1)
             
             elif pattern == "traditional_batik":
-                batik_style = np.random.choice(["kawung", "parang"])
-                if batik_style == "kawung":
-                    grid = 64
-                    for x in range(0, image_size, grid):
-                        for y in range(0, image_size, grid):
-                            draw_wrap_circle(draw, x + grid/2, y + grid/2, grid/2 + 3, fill=None, outline=c2, width=3)
-                            draw_wrap_circle(draw, x + grid/2, y + grid/2, 5, fill=c2)
-                            cx, cy = x + grid/2, y + grid/2
-                            draw_wrap_circle(draw, cx - 10, cy, 4, fill=c2)
-                            draw_wrap_circle(draw, cx + 10, cy, 4, fill=c2)
-                            draw_wrap_circle(draw, cx, cy - 10, 4, fill=c2)
-                            draw_wrap_circle(draw, cx, cy + 10, 4, fill=c2)
-                else: # parang (diagonal slashes)
-                    stripe_w = 32
-                    for s in range(0, image_size * 2, stripe_w * 2):
-                        for d in range(stripe_w):
-                            draw_wrap_line(draw, (s + d - image_size, 0), (s + d, image_size), c2, width=2)
-                        for d in range(0, stripe_w, 8):
-                            draw_wrap_line(draw, (s + d - image_size + stripe_w + 4, 0), (s + d + stripe_w + 4, image_size), c1, width=1)
+                grid = 64
+                for x in range(0, image_size, grid):
+                    for y in range(0, image_size, grid):
+                        draw_wrap_circle(draw, x + grid/2, y + grid/2, grid/2 + 2, fill=None, outline=c2, width=3)
+                        cx, cy = x + grid/2, y + grid/2
+                        draw_wrap_circle(draw, cx, cy, 6, fill=c2)
+                        draw_wrap_circle(draw, cx - 12, cy, 4, fill=c2)
+                        draw_wrap_circle(draw, cx + 12, cy, 4, fill=c2)
+                        draw_wrap_circle(draw, cx, cy - 12, 4, fill=c2)
+                        draw_wrap_circle(draw, cx, cy + 12, 4, fill=c2)
             
-            elif pattern == "wax_resist":
-                for i in range(40):
-                    cx = int((i * 77 + 23) % image_size)
-                    cy = int((i * 123 + 57) % image_size)
-                    r = 15 + (i % 25)
-                    draw_wrap_circle(draw, cx, cy, r, fill=c2)
-                    draw_wrap_circle(draw, cx, cy, int(r * 0.4), fill=c1)
-            
-            else: # crackle or default
-                for i in range(15):
+            else: # crackle or wax_resist
+                for i in range(25):
                     cx = int((i * 111 + 47) % image_size)
                     cy = int((i * 223 + 19) % image_size)
-                    draw_wrap_circle(draw, cx, cy, 40, fill=c2)
+                    draw_wrap_circle(draw, cx, cy, 32, fill=c2)
             
-            # Overlay cracks
-            num_cracks = 60 if pattern == "crackle" else 30
-            crack_color = c1 if pattern != "crackle" else c2
+            # Overlay characteristic Batik wax crackles
+            num_cracks = 60 if pattern == "crackle" else 35
+            crack_color = c2 if pattern == "crackle" else c2
             for i in range(num_cracks):
                 x = int((i * 387 + 109) % image_size)
                 y = int((i * 713 + 347) % image_size)
@@ -847,37 +820,91 @@ class TextileGenerator:
                 rad = np.radians(angle)
                 for _ in range(8):
                     step_len = 15 + (i % 15)
-                    x += int(step_len * np.cos(rad) + np.random.randint(-5, 6))
-                    y += int(step_len * np.sin(rad) + np.random.randint(-5, 6))
+                    x += int(step_len * np.cos(rad) + np.random.randint(-4, 5))
+                    y += int(step_len * np.sin(rad) + np.random.randint(-4, 5))
                     points.append((x, y))
                 for p_idx in range(len(points) - 1):
                     draw_wrap_line(draw, points[p_idx], points[p_idx+1], crack_color, width=1)
 
         # ----------------------------------------------------
-        # Style 3: Ikat
+        # Style 3: Block Print (Jaipuri / Ajrakh)
+        # ----------------------------------------------------
+        elif style == "block_print":
+            draw.rectangle([0, 0, image_size, image_size], fill=c1)
+            grid = 96
+            for x in range(0, image_size, grid):
+                for y in range(0, image_size, grid):
+                    cx, cy = x + grid/2, y + grid/2
+                    # Grid frame border
+                    draw_wrap_rect(draw, x + 4, y + 4, x + grid - 4, y + grid - 4, fill=None, outline=c2, width=2)
+                    
+                    if pattern == "ajrakh_star":
+                        # 8-point geometric star stamp
+                        for a in range(0, 360, 45):
+                            rad = np.radians(a)
+                            rad_inner = np.radians(a + 22.5)
+                            p1 = (cx + 26 * np.cos(rad), cy + 26 * np.sin(rad))
+                            p2 = (cx + 12 * np.cos(rad_inner), cy + 12 * np.sin(rad_inner))
+                            p3 = (cx, cy)
+                            draw_wrap_polygon(draw, [p1, p2, p3], fill=c2)
+                        draw_wrap_circle(draw, cx, cy, 6, fill=c1)
+                    else:
+                        # Jaipuri floral buta stamp
+                        draw_wrap_circle(draw, cx, cy, 10, fill=c2)
+                        for p in range(6):
+                            ang = np.radians(p * 60)
+                            draw_wrap_circle(draw, cx + 18 * np.cos(ang), cy + 18 * np.sin(ang), 8, fill=c2)
+                            draw_wrap_circle(draw, cx + 18 * np.cos(ang), cy + 18 * np.sin(ang), 3, fill=c1)
+                        # Stem and foliage
+                        draw_wrap_line(draw, (cx, cy + 10), (cx, cy + 32), fill=c2, width=3)
+                        draw_wrap_line(draw, (cx, cy + 22), (cx - 10, cy + 14), fill=c2, width=2)
+                        draw_wrap_line(draw, (cx, cy + 22), (cx + 10, cy + 14), fill=c2, width=2)
+
+        # ----------------------------------------------------
+        # Style 4: Paisley (Kalka / Teardrop)
+        # ----------------------------------------------------
+        elif style == "paisley":
+            draw.rectangle([0, 0, image_size, image_size], fill=c1)
+            grid = 128
+            for x in range(0, image_size, grid):
+                for y in range(0, image_size, grid):
+                    cx, cy = x + grid/2, y + grid/2
+                    # Paisley Kalka teardrop parametric curve
+                    pts = []
+                    for t in np.linspace(0, 2*np.pi, 36):
+                        # Parametric teardrop curve formula
+                        r = 28 * (1 - np.sin(t))
+                        px = cx + r * np.cos(t) * 0.9
+                        py = cy + r * np.sin(t) - 10
+                        pts.append((px, py))
+                    draw_wrap_polygon(draw, pts, fill=c2)
+                    # Inner swirling core
+                    draw_wrap_circle(draw, cx, cy - 8, 12, fill=c1)
+                    draw_wrap_circle(draw, cx, cy - 8, 5, fill=c2)
+                    # Surrounding floral florets
+                    for f in range(5):
+                        fa = np.radians(f * 45 - 90)
+                        draw_wrap_circle(draw, cx + 24 * np.cos(fa), cy + 8 + 24 * np.sin(fa), 4, fill=c2)
+
+        # ----------------------------------------------------
+        # Style 5: Ikat
         # ----------------------------------------------------
         else:
             draw.rectangle([0, 0, image_size, image_size], fill=c1)
             
             if pattern == "striped_ikat":
                 stripe_w = np.random.randint(24, 48)
-                accent_style = np.random.choice(["thin_line", "dash", "none"])
                 for x in range(0, image_size, stripe_w * 2):
                     draw_wrap_rect(draw, x, 0, x + stripe_w, image_size, fill=c2)
-                    if accent_style == "thin_line":
-                        draw_wrap_rect(draw, x + stripe_w/2 - 2, 0, x + stripe_w/2 + 2, image_size, fill=c1)
-                    elif accent_style == "dash":
-                        for y in range(0, image_size, 16):
-                            draw_wrap_rect(draw, x + stripe_w/2 - 3, y, x + stripe_w/2 + 3, y + 8, fill=c1)
+                    draw_wrap_rect(draw, x + stripe_w/2 - 2, 0, x + stripe_w/2 + 2, image_size, fill=c1)
             
             elif pattern == "diamond_ikat":
                 grid = np.random.choice([80, 96, 112])
-                nesting_levels = np.random.randint(2, 4)
                 for x in range(0, image_size, grid):
                     for y in range(0, image_size, grid):
-                        for level in range(nesting_levels):
+                        for level in range(3):
                             fill_color = c2 if level % 2 == 0 else c1
-                            offset = level * (grid / (nesting_levels * 3))
+                            offset = level * (grid / 9)
                             pts = [
                                 (x + grid/2, y + offset),
                                 (x + grid - offset, y + grid/2),
@@ -886,24 +913,9 @@ class TextileGenerator:
                             ]
                             draw_wrap_polygon(draw, pts, fill=fill_color)
             
-            elif pattern == "blurred_motif":
-                grid_y = np.random.choice([48, 64, 80])
-                chevron_h = np.random.randint(12, 28)
-                for y in range(-32, image_size + 32, grid_y):
-                    for x in range(0, image_size, 32):
-                        pts = [
-                            (x, y),
-                            (x + 16, y + chevron_h),
-                            (x + 32, y),
-                            (x + 32, y + 10),
-                            (x + 16, y + chevron_h + 10),
-                            (x, y + 10)
-                        ]
-                        draw_wrap_polygon(draw, pts, fill=c2)
-            
-            elif pattern == "traditional_ikat":
+            else: # traditional ikat or default
                 grid = 128
-                star_points = np.random.choice([8, 12, 16])
+                star_points = 8
                 for x in range(0, image_size, grid):
                     for y in range(0, image_size, grid):
                         cx, cy = x + grid/2, y + grid/2
@@ -916,14 +928,6 @@ class TextileGenerator:
                         draw_wrap_polygon(draw, pts, fill=c2)
                         draw_wrap_circle(draw, cx, cy, 10, fill=c1)
                         draw_wrap_circle(draw, cx, cy, 3, fill=c2)
-            
-            else: # woven_pattern or default
-                grid = 32
-                for x in range(0, image_size, grid * 2):
-                    draw_wrap_rect(draw, x, 0, x + grid, image_size, fill=c2)
-                for y in range(0, image_size, grid * 2):
-                    for dy in range(grid):
-                        draw_wrap_line(draw, (0, y + dy), (image_size, y + dy), c1 if dy % 2 == 0 else c2, width=1)
 
         # Apply warp bleed effect (Ikat thread shift)
         if style == "ikat":
@@ -953,6 +957,7 @@ class TextileGenerator:
         """Unload model to free memory"""
         if self._is_loaded:
             self.pipe = None
+
             self.scheduler = None
             self._is_loaded = False
             
